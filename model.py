@@ -242,7 +242,7 @@ class SEGAN(Model):
         d_loss = d_rl_loss + d_fk_loss
 
         # Add the L1 loss to G
-        g_l1_loss = self.l1_lambda * tf.reduce_mean(input_tensor=tf.abs(tf.sub(G,
+        g_l1_loss = self.l1_lambda * tf.reduce_mean(input_tensor=tf.abs(tf.subtract(G,
                                                                   wavbatch)))
 
         g_loss = g_adv_loss + g_l1_loss
