@@ -1,16 +1,15 @@
 from __future__ import print_function
-import tensorflow as tf
-from tensorflow.contrib.layers import batch_norm, fully_connected, flatten
-from tensorflow.contrib.layers import xavier_initializer
-from scipy.io import wavfile
-from generator import *
-from discriminator import *
-import numpy as np
-from data_loader import read_and_decode, de_emph
-from bnorm import VBN
-from ops import *
-import timeit
+
 import os
+import timeit
+
+from scipy.io import wavfile
+
+from bnorm import VBN
+from data_loader import read_and_decode, de_emph
+from discriminator import *
+from generator import *
+from ops import *
 
 
 class Model(object):
@@ -23,7 +22,7 @@ class Model(object):
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         if not hasattr(self, 'saver'):
-            self.saver = tf.train.Saver()
+            self.saver = tf.compat.v1.train.Saver()
         self.saver.save(self.sess,
                         os.path.join(save_path, model_name),
                         global_step=step)
@@ -42,7 +41,7 @@ class Model(object):
         else:
             ckpt_name = model_file
         if not hasattr(self, 'saver'):
-            self.saver = tf.train.Saver()
+            self.saver = tf.compat.v1.train.Saver()
         self.saver.restore(self.sess, os.path.join(save_path, ckpt_name))
         print('[*] Read {}'.format(ckpt_name))
         return True
@@ -120,8 +119,8 @@ class SEGAN(Model):
     def build_model(self, config):
         all_d_grads = []
         all_g_grads = []
-        d_opt = tf.train.RMSPropOptimizer(config.d_learning_rate)
-        g_opt = tf.train.RMSPropOptimizer(config.g_learning_rate)
+        d_opt = tf.compat.v1.train.RMSPropOptimizer(config.d_learning_rate)
+        g_opt = tf.compat.v1.train.RMSPropOptimizer(config.g_learning_rate)
         #d_opt = tf.train.AdamOptimizer(config.d_learning_rate,
         #                               beta1=config.beta_1)
         #g_opt = tf.train.AdamOptimizer(config.g_learning_rate,
@@ -129,7 +128,7 @@ class SEGAN(Model):
 
         for idx, device in enumerate(self.devices):
             with tf.device("/%s" % device):
-                with tf.name_scope("device_%s" % idx):
+                with tf.compat.v1.name_scope("device_%s" % idx):
                     with variables_on_gpu0():
                         self.build_model_single_gpu(idx)
                         d_grads = d_opt.compute_gradients(self.d_losses[-1],
@@ -138,7 +137,7 @@ class SEGAN(Model):
                                                           var_list=self.g_vars)
                         all_d_grads.append(d_grads)
                         all_g_grads.append(g_grads)
-                        tf.get_variable_scope().reuse_variables()
+                        tf.compat.v1.get_variable_scope().reuse_variables()
         avg_d_grads = average_gradients(all_d_grads)
         avg_g_grads = average_gradients(all_g_grads)
         self.d_opt = d_opt.apply_gradients(avg_d_grads)
@@ -148,13 +147,13 @@ class SEGAN(Model):
     def build_model_single_gpu(self, gpu_idx):
         if gpu_idx == 0:
             # create the nodes to load for input pipeline
-            filename_queue = tf.train.string_input_producer([self.e2e_dataset])
+            filename_queue = tf.compat.v1.train.string_input_producer([self.e2e_dataset])
             self.get_wav, self.get_noisy = read_and_decode(filename_queue,
                                                            self.canvas_size,
                                                            self.preemph)
         # load the data to input pipeline
         wavbatch, \
-        noisybatch = tf.train.shuffle_batch([self.get_wav,
+        noisybatch = tf.compat.v1.train.shuffle_batch([self.get_wav,
                                              self.get_noisy],
                                              batch_size=self.batch_size,
                                              num_threads=2,
@@ -197,7 +196,7 @@ class SEGAN(Model):
             # make a dummy copy of discriminator to have variables and then
             # be able to set up the variable reuse for all other devices
             # merge along channels and this would be a real batch
-            dummy_joint = tf.concat(2, [wavbatch, noisybatch])
+            dummy_joint = tf.concat([wavbatch, noisybatch], 2)
             dummy = discriminator(self, dummy_joint,
                                   reuse=False)
 
@@ -207,8 +206,8 @@ class SEGAN(Model):
         self.zs.append(z)
 
         # add new dimension to merge with other pairs
-        D_rl_joint = tf.concat(2, [wavbatch, noisybatch])
-        D_fk_joint = tf.concat(2, [G, noisybatch])
+        D_rl_joint = tf.concat([wavbatch, noisybatch], 2)
+        D_fk_joint = tf.concat([G, noisybatch], 2)
         # build rl discriminator
         d_rl_logits = discriminator(self, D_rl_joint, reuse=True)
         # build fk G discriminator
@@ -235,15 +234,15 @@ class SEGAN(Model):
             #self.d_nfk_losses = []
             self.d_losses = []
 
-        d_rl_loss = tf.reduce_mean(tf.squared_difference(d_rl_logits, 1.))
-        d_fk_loss = tf.reduce_mean(tf.squared_difference(d_fk_logits, 0.))
+        d_rl_loss = tf.reduce_mean(input_tensor=tf.math.squared_difference(d_rl_logits, 1.))
+        d_fk_loss = tf.reduce_mean(input_tensor=tf.math.squared_difference(d_fk_logits, 0.))
         #d_nfk_loss = tf.reduce_mean(tf.squared_difference(d_nfk_logits, 0.))
-        g_adv_loss = tf.reduce_mean(tf.squared_difference(d_fk_logits, 1.))
+        g_adv_loss = tf.reduce_mean(input_tensor=tf.math.squared_difference(d_fk_logits, 1.))
 
         d_loss = d_rl_loss + d_fk_loss
 
         # Add the L1 loss to G
-        g_l1_loss = self.l1_lambda * tf.reduce_mean(tf.abs(tf.sub(G,
+        g_l1_loss = self.l1_lambda * tf.reduce_mean(input_tensor=tf.abs(tf.sub(G,
                                                                   wavbatch)))
 
         g_loss = g_adv_loss + g_l1_loss
@@ -271,7 +270,7 @@ class SEGAN(Model):
 
 
     def get_vars(self):
-        t_vars = tf.trainable_variables()
+        t_vars = tf.compat.v1.trainable_variables()
         self.d_vars_dict = {}
         self.g_vars_dict = {}
         for var in t_vars:
@@ -322,10 +321,10 @@ class SEGAN(Model):
         num_devices = len(devices)
 
         try:
-            init = tf.global_variables_initializer()
+            init = tf.compat.v1.global_variables_initializer()
         except AttributeError:
             # fall back to old implementation
-            init = tf.initialize_all_variables()
+            init = tf.compat.v1.initialize_all_variables()
 
         print('Initializing variables...')
         self.sess.run(init)
@@ -341,8 +340,8 @@ class SEGAN(Model):
         # if we have prelus, add them to summary
         if hasattr(self, 'alpha_summ'):
             g_summs += self.alpha_summ
-        self.g_sum = tf.summary.merge(g_summs)
-        self.d_sum = tf.summary.merge([self.d_loss_sum,
+        self.g_sum = tf.compat.v1.summary.merge(g_summs)
+        self.d_sum = tf.compat.v1.summary.merge([self.d_loss_sum,
                                        self.d_rl_sum,
                                        self.d_rl_loss_sum,
                                        self.rl_audio_summ,
@@ -352,12 +351,12 @@ class SEGAN(Model):
         if not os.path.exists(os.path.join(config.save_path, 'train')):
             os.makedirs(os.path.join(config.save_path, 'train'))
 
-        self.writer = tf.summary.FileWriter(os.path.join(config.save_path,
+        self.writer = tf.compat.v1.summary.FileWriter(os.path.join(config.save_path,
                                                          'train'),
                                             self.sess.graph)
 
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+        threads = tf.compat.v1.train.start_queue_runners(coord=coord)
 
         print('Sampling some wavs to store sample references...')
         # Hang onto a copy of wavs so we can feed the same one every time
@@ -375,7 +374,7 @@ class SEGAN(Model):
         counter = 0
         # count number of samples
         num_examples = 0
-        for record in tf.python_io.tf_record_iterator(self.e2e_dataset):
+        for record in tf.compat.v1.python_io.tf_record_iterator(self.e2e_dataset):
             num_examples += 1
         print('total examples in TFRecords {}: {}'.format(self.e2e_dataset,
                                                           num_examples))
@@ -512,7 +511,7 @@ class SEGAN(Model):
                     # check if we have to deactivate L1
                     if curr_epoch >= config.l1_remove_epoch and self.deactivated_l1 == False:
                         print('** Deactivating L1 factor! **')
-                        self.sess.run(tf.assign(self.l1_lambda, 0.))
+                        self.sess.run(tf.compat.v1.assign(self.l1_lambda, 0.))
                         self.deactivated_l1 = True
                     # check if we have to start decaying noise (if any)
                     if curr_epoch >= config.denoise_epoch and self.deactivated_noise == False:
@@ -529,7 +528,7 @@ class SEGAN(Model):
                             self.deactivated_noise = True
                         else:
                             print('Applying decay {} to noise std {}: {}'.format(decay, self.curr_noise_std, new_noise_std))
-                        self.sess.run(tf.assign(self.disc_noise_std, new_noise_std))
+                        self.sess.run(tf.compat.v1.assign(self.disc_noise_std, new_noise_std))
                         self.curr_noise_std = new_noise_std
                 if curr_epoch >= config.epoch:
                     # done training
@@ -607,17 +606,17 @@ class SEAE(Model):
 
     def build_model(self, config):
         all_g_grads = []
-        g_opt = tf.train.AdamOptimizer(config.g_learning_rate, config.beta_1)
+        g_opt = tf.compat.v1.train.AdamOptimizer(config.g_learning_rate, config.beta_1)
 
         for idx, device in enumerate(self.devices):
             with tf.device("/%s" % device):
-                with tf.name_scope("device_%s" % idx):
+                with tf.compat.v1.name_scope("device_%s" % idx):
                     with variables_on_gpu0():
                         self.build_model_single_gpu(idx)
                         g_grads = g_opt.compute_gradients(self.g_losses[-1],
                                                           var_list=self.g_vars)
                         all_g_grads.append(g_grads)
-                        tf.get_variable_scope().reuse_variables()
+                        tf.compat.v1.get_variable_scope().reuse_variables()
         avg_g_grads = average_gradients(all_g_grads)
         self.g_opt = g_opt.apply_gradients(avg_g_grads)
 
@@ -625,12 +624,12 @@ class SEAE(Model):
     def build_model_single_gpu(self, gpu_idx):
         if gpu_idx == 0:
             # create the nodes to load for input pipeline
-            filename_queue = tf.train.string_input_producer([self.e2e_dataset])
+            filename_queue = tf.compat.v1.train.string_input_producer([self.e2e_dataset])
             self.get_wav, self.get_noisy = read_and_decode(filename_queue,
                                                            2 ** 14)
         # load the data to input pipeline
         wavbatch, \
-        noisybatch = tf.train.shuffle_batch([self.get_wav,
+        noisybatch = tf.compat.v1.train.shuffle_batch([self.get_wav,
                                              self.get_noisy],
                                              batch_size=self.batch_size,
                                              num_threads=2,
@@ -671,7 +670,7 @@ class SEAE(Model):
             self.g_losses = []
 
         # Add the L1 loss to G
-        g_loss = tf.reduce_mean(tf.abs(tf.sub(G, wavbatch)))
+        g_loss = tf.reduce_mean(input_tensor=tf.abs(tf.sub(G, wavbatch)))
 
         self.g_losses.append(g_loss)
 
@@ -681,7 +680,7 @@ class SEAE(Model):
             self.get_vars()
 
     def get_vars(self):
-        t_vars = tf.trainable_variables()
+        t_vars = tf.compat.v1.trainable_variables()
         self.g_vars = [var for var in t_vars if var.name.startswith('g_')]
         for x in t_vars:
             assert x in self.g_vars, x.name
@@ -696,15 +695,15 @@ class SEAE(Model):
         num_devices = len(devices)
 
         try:
-            init = tf.global_variables_initializer()
+            init = tf.compat.v1.global_variables_initializer()
         except AttributeError:
             # fall back to old implementation
-            init = tf.initialize_all_variables()
+            init = tf.compat.v1.initialize_all_variables()
 
         print('Initializing variables...')
         self.sess.run(init)
-        self.saver = tf.train.Saver()
-        self.g_sum = tf.summary.merge([self.g_loss_sum,
+        self.saver = tf.compat.v1.train.Saver()
+        self.g_sum = tf.compat.v1.summary.merge([self.g_loss_sum,
                                        self.gen_summ,
                                        self.rl_audio_summ,
                                        self.real_w_summ,
@@ -713,12 +712,12 @@ class SEAE(Model):
         if not os.path.exists(os.path.join(config.save_path, 'train')):
             os.makedirs(os.path.join(config.save_path, 'train'))
 
-        self.writer = tf.summary.FileWriter(os.path.join(config.save_path,
+        self.writer = tf.compat.v1.summary.FileWriter(os.path.join(config.save_path,
                                                          'train'),
                                             self.sess.graph)
 
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+        threads = tf.compat.v1.train.start_queue_runners(coord=coord)
 
         print('Sampling some wavs to store sample references...')
         # Hang onto a copy of wavs so we can feed the same one every time
@@ -733,7 +732,7 @@ class SEAE(Model):
         counter = 0
         # count number of samples
         num_examples = 0
-        for record in tf.python_io.tf_record_iterator(self.e2e_dataset):
+        for record in tf.compat.v1.python_io.tf_record_iterator(self.e2e_dataset):
             num_examples += 1
         print('total examples in TFRecords {}: {}'.format(self.e2e_dataset,
                                                           num_examples))

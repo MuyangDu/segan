@@ -10,7 +10,7 @@ from data_loader import pre_emph
 
 devices = device_lib.list_local_devices()
 
-flags = tf.app.flags
+flags = tf.compat.v1.app.flags
 flags.DEFINE_integer("seed",111, "Random seed (Def: 111).")
 flags.DEFINE_integer("epoch", 150, "Epochs to train (Def: 150).")
 flags.DEFINE_integer("batch_size", 150, "Batch size (Def: 150).")
@@ -59,7 +59,7 @@ flags.DEFINE_string("weights", None, "Weights file")
 FLAGS = flags.FLAGS
 
 def pre_emph_test(coeff, canvas_size):
-    x_ = tf.placeholder(tf.float32, shape=[canvas_size,])
+    x_ = tf.compat.v1.placeholder(tf.float32, shape=[canvas_size,])
     x_preemph = pre_emph(x_, coeff)
     return x_, x_preemph
 
@@ -72,7 +72,7 @@ def main(_):
     if not os.path.exists(FLAGS.synthesis_path):
         os.makedirs(FLAGS.synthesis_path)
     np.random.seed(FLAGS.seed)
-    config = tf.ConfigProto()
+    config = tf.compat.v1.ConfigProto()
     config.gpu_options.allow_growth = True
     config.allow_soft_placement=True
     udevices = []
@@ -83,7 +83,7 @@ def main(_):
         print('Using device: ', device.name)
         udevices.append(device.name)
     # execute the session
-    with tf.Session(config=config) as sess:
+    with tf.compat.v1.Session(config=config) as sess:
         if FLAGS.model == 'gan':
             print('Creating GAN model')
             se_model = SEGAN(sess, FLAGS, udevices)
@@ -119,4 +119,4 @@ def main(_):
 
 
 if __name__ == '__main__':
-    tf.app.run()
+    tf.compat.v1.app.run()

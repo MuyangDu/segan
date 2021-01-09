@@ -15,12 +15,12 @@ class VBN(object):
 
         shape = x.get_shape().as_list()
         assert len(shape) == 3, shape
-        with tf.variable_scope(name) as scope:
+        with tf.compat.v1.variable_scope(name) as scope:
             assert name.startswith("d_") or name.startswith("g_")
             self.epsilon = epsilon
             self.name = name
-            self.mean = tf.reduce_mean(x, [0, 1], keep_dims=True)
-            self.mean_sq = tf.reduce_mean(tf.square(x), [0, 1], keep_dims=True)
+            self.mean = tf.reduce_mean(input_tensor=x, axis=[0, 1], keepdims=True)
+            self.mean_sq = tf.reduce_mean(input_tensor=tf.square(x), axis=[0, 1], keepdims=True)
             self.batch_size = int(x.get_shape()[0])
             assert x is not None
             assert self.mean is not None
@@ -31,11 +31,11 @@ class VBN(object):
     def __call__(self, x):
 
         shape = x.get_shape().as_list()
-        with tf.variable_scope(self.name) as scope:
+        with tf.compat.v1.variable_scope(self.name) as scope:
             new_coeff = 1. / (self.batch_size + 1.)
             old_coeff = 1. - new_coeff
-            new_mean = tf.reduce_mean(x, [0, 1], keep_dims=True)
-            new_mean_sq = tf.reduce_mean(tf.square(x), [0, 1], keep_dims=True)
+            new_mean = tf.reduce_mean(input_tensor=x, axis=[0, 1], keepdims=True)
+            new_mean_sq = tf.reduce_mean(input_tensor=tf.square(x), axis=[0, 1], keepdims=True)
             mean = new_coeff * new_mean + old_coeff * self.mean
             mean_sq = new_coeff * new_mean_sq + old_coeff * self.mean_sq
             out = self._normalize(x, mean, mean_sq, "live")
@@ -45,11 +45,11 @@ class VBN(object):
         # make sure this is called with a variable scope
         shape = x.get_shape().as_list()
         assert len(shape) == 3
-        self.gamma = tf.get_variable("gamma", [shape[-1]],
-                                initializer=tf.random_normal_initializer(1., 0.02))
+        self.gamma = tf.compat.v1.get_variable("gamma", [shape[-1]],
+                                initializer=tf.compat.v1.random_normal_initializer(1., 0.02))
         gamma = tf.reshape(self.gamma, [1, 1, -1])
-        self.beta = tf.get_variable("beta", [shape[-1]],
-                                initializer=tf.constant_initializer(0.))
+        self.beta = tf.compat.v1.get_variable("beta", [shape[-1]],
+                                initializer=tf.compat.v1.constant_initializer(0.))
         beta = tf.reshape(self.beta, [1, 1, -1])
         assert self.epsilon is not None
         assert mean_sq is not None

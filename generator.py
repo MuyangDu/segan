@@ -1,9 +1,9 @@
 from __future__ import print_function
-import tensorflow as tf
-from tensorflow.contrib.layers import batch_norm, fully_connected, flatten
-from tensorflow.contrib.layers import xavier_initializer
+
 from ops import *
-import numpy as np
+
+import tensorflow as tf
+
 
 
 class Generator(object):
@@ -19,9 +19,9 @@ class Generator(object):
 
         def make_z(shape, mean=0., std=1., name='z'):
             if is_ref:
-                with tf.variable_scope(name) as scope:
-                    z_init = tf.random_normal_initializer(mean=mean, stddev=std)
-                    z = tf.get_variable("z", shape,
+                with tf.compat.v1.variable_scope(name) as scope:
+                    z_init = tf.compat.v1.random_normal_initializer(mean=mean, stddev=std)
+                    z = tf.compat.v1.get_variable("z", shape,
                                         initializer=z_init,
                                         trainable=False
                                         )
@@ -30,12 +30,12 @@ class Generator(object):
                         print('z.device is {}'.format(z.device))
                         assert False
             else:
-                z = tf.random_normal(shape, mean=mean, stddev=std,
+                z = tf.random.normal(shape, mean=mean, stddev=std,
                                      name=name, dtype=tf.float32)
             return z
 
         if hasattr(segan, 'generator_built'):
-            tf.get_variable_scope().reuse_variables()
+            tf.compat.v1.get_variable_scope().reuse_variables()
             make_vars = False
         else:
             make_vars = True
@@ -50,7 +50,7 @@ class Generator(object):
         kwidth = 3
         z = make_z([segan.batch_size, h_i.get_shape().as_list()[1],
                     segan.g_enc_depths[-1]])
-        h_i = tf.concat(2, [h_i, z])
+        h_i = tf.concat([h_i, z], 2)
         skip_out = True
         skips = []
         for block_idx, dilation in enumerate(segan.g_dilated_blocks):
@@ -74,7 +74,7 @@ class Generator(object):
                 if segan.keep_prob < 1:
                     print('Adding dropout w/ keep prob {} '
                           'to G'.format(segan.keep_prob))
-                    h_i = tf.nn.dropout(h_i, segan.keep_prob_var)
+                    h_i = tf.nn.dropout(h_i, 1 - (segan.keep_prob_var))
                 if skip_out:
                     # accumulate the skip connections
                     skips.append(skip_i)
@@ -83,12 +83,12 @@ class Generator(object):
                     skips.append(res_i)
         print('Amount of skip connections: ', len(skips))
         # TODO: last pooling for actual wave
-        with tf.variable_scope('g_wave_pooling'):
+        with tf.compat.v1.variable_scope('g_wave_pooling'):
             skip_T = tf.stack(skips, axis=0)
-            skips_sum = tf.reduce_sum(skip_T, axis=0)
+            skips_sum = tf.reduce_sum(input_tensor=skip_T, axis=0)
             skips_sum = leakyrelu(skips_sum)
             wave_a = conv1d(skips_sum, kwidth=1, num_kernels=1,
-                            init=tf.truncated_normal_initializer(stddev=0.02))
+                            init=tf.compat.v1.truncated_normal_initializer(stddev=0.02))
             wave = tf.tanh(wave_a)
             segan.gen_wave_summ = histogram_summary('gen_wave', wave)
         print('Last residual wave shape: ', res_i.get_shape())
@@ -110,9 +110,9 @@ class AEGenerator(object):
 
         def make_z(shape, mean=0., std=1., name='z'):
             if is_ref:
-                with tf.variable_scope(name) as scope:
-                    z_init = tf.random_normal_initializer(mean=mean, stddev=std)
-                    z = tf.get_variable("z", shape,
+                with tf.compat.v1.variable_scope(name) as scope:
+                    z_init = tf.compat.v1.random_normal_initializer(mean=mean, stddev=std)
+                    z = tf.compat.v1.get_variable("z", shape,
                                         initializer=z_init,
                                         trainable=False
                                         )
@@ -121,12 +121,12 @@ class AEGenerator(object):
                         print('z.device is {}'.format(z.device))
                         assert False
             else:
-                z = tf.random_normal(shape, mean=mean, stddev=std,
+                z = tf.random.normal(shape, mean=mean, stddev=std,
                                      name=name, dtype=tf.float32)
             return z
 
         if hasattr(segan, 'generator_built'):
-            tf.get_variable_scope().reuse_variables()
+            tf.compat.v1.get_variable_scope().reuse_variables()
             make_vars = False
         else:
             make_vars = True
@@ -144,7 +144,7 @@ class AEGenerator(object):
         if is_ref and do_prelu:
             #keep track of prelu activations
             alphas = []
-        with tf.variable_scope('g_ae'):
+        with tf.compat.v1.variable_scope('g_ae'):
             #AE to be built is shaped:
             # enc ~ [16384x1, 8192x16, 4096x32, 2048x32, 1024x64, 512x64, 256x128, 128x128, 64x256, 32x256, 16x512, 8x1024]
             # dec ~ [8x2048, 16x1024, 32x512, 64x512, 8x256, 256x256, 512x128, 1024x128, 2048x64, 4096x64, 8192x32, 16384x1]
@@ -154,9 +154,9 @@ class AEGenerator(object):
                 if segan.bias_downconv:
                     if is_ref:
                         print('Biasing downconv in G')
-                    bias_init = tf.constant_initializer(0.)
+                    bias_init = tf.compat.v1.constant_initializer(0.)
                 h_i_dwn = downconv(h_i, layer_depth, kwidth=kwidth,
-                                   init=tf.truncated_normal_initializer(stddev=0.02),
+                                   init=tf.compat.v1.truncated_normal_initializer(stddev=0.02),
                                    bias_init=bias_init,
                                    name='enc_{}'.format(layer_idx))
                 if is_ref:
@@ -188,7 +188,7 @@ class AEGenerator(object):
                 # random code is fused with intermediate representation
                 z = make_z([segan.batch_size, h_i.get_shape().as_list()[1],
                             segan.g_enc_depths[-1]])
-                h_i = tf.concat(2, [z, h_i])
+                h_i = tf.concat([z, h_i], 2)
 
             #SECOND DECODER (reverse order)
             g_dec_depths = segan.g_enc_depths[:-1][::-1] + [1]
@@ -205,9 +205,9 @@ class AEGenerator(object):
                         if segan.bias_deconv:
                             print('Biasing deconv in G')
                     if segan.bias_deconv:
-                        bias_init = tf.constant_initializer(0.)
+                        bias_init = tf.compat.v1.constant_initializer(0.)
                     h_i_dcv = deconv(h_i, out_shape, kwidth=kwidth, dilation=2,
-                                     init=tf.truncated_normal_initializer(stddev=0.02),
+                                     init=tf.compat.v1.truncated_normal_initializer(stddev=0.02),
                                      bias_init=bias_init,
                                      name='dec_{}'.format(layer_idx))
                 elif segan.deconv_type == 'nn_deconv':
@@ -218,7 +218,7 @@ class AEGenerator(object):
                     if segan.bias_deconv:
                         bias_init = 0.
                     h_i_dcv = nn_deconv(h_i, kwidth=kwidth, dilation=2,
-                                        init=tf.truncated_normal_initializer(stddev=0.02),
+                                        init=tf.compat.v1.truncated_normal_initializer(stddev=0.02),
                                         bias_init=bias_init,
                                         name='dec_{}'.format(layer_idx))
                 else:
@@ -247,7 +247,7 @@ class AEGenerator(object):
                     if is_ref:
                         print('Fusing skip connection of '
                               'shape {}'.format(skip_.get_shape()))
-                    h_i = tf.concat(2, [h_i, skip_])
+                    h_i = tf.concat([h_i, skip_], 2)
 
                 else:
                     if is_ref:
